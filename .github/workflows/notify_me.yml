@@ -1,0 +1,51 @@
+name: Smart Update Checker
+on:
+  schedule:
+    - cron: '0 2 * * *' # 每天北京时间上午 10:00 自动检查一次
+  workflow_dispatch:      # 允许手动点击测试
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Get Latest Version From Original
+        id: get_tag
+        run: |
+          # 获取原作者最新的版本号
+          TAG=$(curl -s https://api.github.com/repos/LeoHaoVIP/AListLiteAndroid/releases/latest | jq -r .tag_name)
+          echo "latest_tag=$TAG" >> $GITHUB_OUTPUT
+
+      - name: Read Last Known Version
+        id: last_tag
+        run: |
+          # 读取本地保存的版本记录，如果不存在则为空
+          if [ -f last_version.txt ]; then
+            OLD_TAG=$(cat last_version.txt)
+          else
+            OLD_TAG="none"
+          fi
+          echo "old_tag=$OLD_TAG" >> $GITHUB_OUTPUT
+
+      - name: Compare and Notify
+        if: steps.get_tag.outputs.latest_tag != steps.last_tag.outputs.old_tag
+        run: |
+          # 只有版本号不同时，才发送微信提醒
+          curl -X POST "https://sctapi.ftqq.com/${{ secrets.SERVERCHAN_SENDKEY }}.send" \
+          -d "title=AListLite 有新更新！" \
+          -d "desp=发现新版本：${{ steps.get_tag.outputs.latest_tag }} \n\n请前往原仓库查看：https://github.com/LeoHaoVIP/AListLiteAndroid/releases"
+          
+          # 更新本地版本记录
+          echo "${{ steps.get_tag.outputs.latest_tag }}" > last_version.txt
+
+      - name: Save Version Record
+        if: steps.get_tag.outputs.latest_tag != steps.last_tag.outputs.old_tag
+        run: |
+          # 将新的版本号提交回你的 GitHub 仓库保存
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add last_version.txt
+          git commit -m "Update last known version to ${{ steps.get_tag.outputs.latest_tag }}"
+          git push
