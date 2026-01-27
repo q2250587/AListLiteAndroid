@@ -1,0 +1,50 @@
+name: AListLite Monitor
+on:
+  schedule:
+    - cron: '0 2 * * *' # 每天北京时间上午 10:00 自动检查
+  workflow_dispatch:      # 允许手动测试
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Get Latest Version
+        id: get_tag
+        run: |
+          # 获取 AListLiteAndroid 最新版本号
+          TAG=$(curl -s https://api.github.com/repos/LeoHaoVIP/AListLiteAndroid/releases/latest | jq -r .tag_name)
+          echo "latest_tag=$TAG" >> $GITHUB_OUTPUT
+
+      - name: Compare and Notify
+        id: compare
+        # 只有获取到标签才继续
+        if: steps.get_tag.outputs.latest_tag != 'null' && steps.get_tag.outputs.latest_tag != ''
+        run: |
+          # 检查本地是否有旧记录
+          OLD_TAG=$(cat last_alist_version.txt 2>/dev/null || echo "none")
+          
+          if [ "$OLD_TAG" != "${{ steps.get_tag.outputs.latest_tag }}" ]; then
+            echo "发现新版本，发送通知..."
+            curl -X POST "https://sctapi.ftqq.com/${{ secrets.SERVERCHAN_SENDKEY }}.send" \
+            -d "title=AListLite 有更新！" \
+            -d "desp=最新版本：${{ steps.get_tag.outputs.latest_tag }} \n\n 地址：https://github.com/LeoHaoVIP/AListLiteAndroid/releases"
+            
+            # 更新本地记录
+            echo "${{ steps.get_tag.outputs.latest_tag }}" > last_alist_version.txt
+            echo "update_needed=true" >> $GITHUB_ENV
+          else
+            echo "版本未变化，跳过通知。"
+            echo "update_needed=false" >> $GITHUB_ENV
+          fi
+
+      - name: Save Record
+        if: env.update_needed == 'true'
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add last_alist_version.txt
+          git commit -m "Update last version to ${{ steps.get_tag.outputs.latest_tag }}"
+          git push
