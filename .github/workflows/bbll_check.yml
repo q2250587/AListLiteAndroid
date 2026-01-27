@@ -1,0 +1,47 @@
+name: BBLLV5 Smart Checker
+on:
+  schedule:
+    - cron: '30 2 * * *' # 每天北京时间 10:30 检查（稍微错开时间）
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Get Latest Version
+        id: get_tag
+        run: |
+          # 检查 BBLLV5 的最新版本
+          TAG=$(curl -s https://api.github.com/repos/swyefun/BBLLV5/releases/latest | jq -r .tag_name)
+          echo "latest_tag=$TAG" >> $GITHUB_OUTPUT
+
+      - name: Read Last Version
+        id: last_tag
+        run: |
+          if [ -f last_bbll_version.txt ]; then
+            OLD_TAG=$(cat last_bbll_version.txt)
+          else
+            OLD_TAG="none"
+          fi
+          echo "old_tag=$OLD_TAG" >> $GITHUB_OUTPUT
+
+      - name: Compare and Notify
+        if: steps.get_tag.outputs.latest_tag != steps.last_tag.outputs.old_tag
+        run: |
+          curl -X POST "https://sctapi.ftqq.com/${{ secrets.SERVERCHAN_SENDKEY }}.send" \
+          -d "title=BBLL V5 有新版本！" \
+          -d "desp=发现新版本：${{ steps.get_tag.outputs.latest_tag }} \n\n传送门：https://github.com/swyefun/BBLLV5/releases"
+          
+          echo "${{ steps.get_tag.outputs.latest_tag }}" > last_bbll_version.txt
+
+      - name: Save Record
+        if: steps.get_tag.outputs.latest_tag != steps.last_tag.outputs.old_tag
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add last_bbll_version.txt
+          git commit -m "Update BBLL version to ${{ steps.get_tag.outputs.latest_tag }}"
+          git push
